@@ -1,0 +1,23 @@
+[package]
+name = "nd-dlna"
+description = "Transmissão para receptores DLNA/UPnP (SSDP + AVTransport + MPEG-TS por HTTP)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nd-core.workspace = true
+# `detect_gpu_driver`: the same sysfs read every other crate here uses.
+nd-net.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+futures.workspace = true
+gstreamer.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber.workspace = true

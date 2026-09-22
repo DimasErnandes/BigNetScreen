@@ -16,6 +16,8 @@ futures.workspace = true
 gstreamer.workspace = true
 # `radio`: radio silence shared between discovery and streaming.
 tokio.workspace = true
+# `stream_server`: handing a live TCP socket to `multisocketsink`.
+gio = "0.22"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
