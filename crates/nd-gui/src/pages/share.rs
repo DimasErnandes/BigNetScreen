@@ -12,12 +12,18 @@ use relm4::prelude::*;
 
 use super::device_row::{DeviceRow, DeviceRowOutput, identity_refused, sync_rows};
 use super::{DeviceEntry, Discovery, SessionInfo, latency_hint};
-use crate::tr;
+use crate::{tr, tr_n};
+use nd_core::sink::SinkKind;
 
 pub struct SharePage {
     devices: FactoryVecDeque<DeviceRow>,
     /// Every receiver found, before the files filter.
     all: Vec<DeviceEntry>,
+    /// The AirPlay receivers under the collapsed row, as last shown, and their
+    /// rows. They can only be listed, so they are kept out of the way of the
+    /// receivers that can be shared to.
+    airplay: Vec<DeviceEntry>,
+    airplay_rows: Vec<adw::ActionRow>,
     /// Files are shared instead of the screen.
     files: bool,
     /// Some file is chosen to send.
@@ -195,6 +201,30 @@ impl Component for SharePage {
                         add_css_class: "boxed-list",
                         add_css_class: "device-list",
                     },
+                    gtk::ListBox {
+                        #[watch]
+                        set_visible: !model.files && !model.airplay.is_empty(),
+                        set_selection_mode: gtk::SelectionMode::None,
+                        add_css_class: "boxed-list",
+                        add_css_class: "device-list",
+
+                        #[name = "airplay_group"]
+                        adw::ExpanderRow {
+                            set_title: &crate::pages::protocol_label(SinkKind::AirPlay),
+                            #[watch]
+                            set_subtitle: &tr_n!(
+                                "{} receiver found",
+                                "{} receivers found",
+                                model.airplay.len()
+                            )
+                            .replace("{}", &model.airplay.len().to_string()),
+                            add_prefix = &gtk::Image {
+                                set_icon_name: Some(crate::pages::icon_for(SinkKind::AirPlay)),
+                                set_pixel_size: 24,
+                                add_css_class: "device-icon",
+                            },
+                        },
+                    },
                     gtk::Label {
                         #[watch]
                         set_label: &if model.files {
@@ -298,6 +328,8 @@ impl Component for SharePage {
         let model = SharePage {
             devices,
             all: Vec::new(),
+            airplay: Vec::new(),
+            airplay_rows: Vec::new(),
             files: false,
             chosen: false,
             session: None,
@@ -319,13 +351,13 @@ impl Component for SharePage {
         match message {
             ShareMsg::Devices(entries) => {
                 self.all = entries;
-                self.show_devices();
+                self.show_devices(widgets);
             }
             ShareMsg::Files { files, chosen } => {
                 if (files, chosen) != (self.files, self.chosen) {
                     self.files = files;
                     self.chosen = chosen;
-                    self.show_devices();
+                    self.show_devices(widgets);
                 }
             }
             ShareMsg::Session(session) => {
@@ -407,7 +439,7 @@ impl Component for SharePage {
         match outcome {
             Ok(()) => {
                 self.retrusted.push(id.clone());
-                self.show_devices();
+                self.show_devices(widgets);
                 root.announce(
                     &tr!("The device that answers on the next connection will be trusted"),
                     gtk::AccessibleAnnouncementPriority::Medium,
@@ -429,7 +461,7 @@ impl Component for SharePage {
 
 impl SharePage {
     /// The rows for the receivers found, as the current mode offers them.
-    fn show_devices(&mut self) {
+    fn show_devices(&mut self, widgets: &SharePageWidgets) {
         // A refusal recorded before the identity was forgotten is shown as a
         // receiver ready to try again.
         let all = &self.all;
@@ -439,6 +471,7 @@ impl SharePage {
         let entries = self
             .all
             .iter()
+            .filter(|entry| entry.kind != SinkKind::AirPlay)
             .filter(|entry| !self.files || entry.kind.can_receive_files(&entry.address))
             .map(|entry| {
                 let mut entry = entry.clone();
@@ -451,6 +484,44 @@ impl SharePage {
             })
             .collect();
         sync_rows(&mut self.devices, entries);
+        self.show_airplay(&widgets.airplay_group);
+    }
+
+    /// Lists the AirPlay receivers under their collapsed row.
+    ///
+    /// The rows hold no state and offer no action, so they are rebuilt when
+    /// the set changes rather than kept in a factory.
+    fn show_airplay(&mut self, group: &adw::ExpanderRow) {
+        let airplay: Vec<DeviceEntry> = self
+            .all
+            .iter()
+            .filter(|entry| entry.kind == SinkKind::AirPlay)
+            .cloned()
+            .collect();
+        if airplay == self.airplay {
+            return;
+        }
+        for row in self.airplay_rows.drain(..) {
+            group.remove(&row);
+        }
+        for entry in &airplay {
+            let row = adw::ActionRow::builder()
+                .title(&entry.name)
+                .subtitle(&entry.address)
+                .use_markup(false)
+                .build();
+            row.add_css_class("device-row");
+            row.add_suffix(
+                &gtk::Label::builder()
+                    .label(entry.badge())
+                    .valign(gtk::Align::Center)
+                    .css_classes(["badge", "discovery-only"])
+                    .build(),
+            );
+            group.add_row(&row);
+            self.airplay_rows.push(row);
+        }
+        self.airplay = airplay;
     }
 
     fn session_field<F: Fn(&SessionInfo) -> String>(&self, f: F) -> String {
@@ -489,7 +560,7 @@ impl SharePage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nd_core::sink::{SinkKind, SinkState};
+    use nd_core::sink::SinkState;
 
     #[test]
     #[ignore = "requires a graphical GTK session and a temporary XDG_DATA_HOME"]

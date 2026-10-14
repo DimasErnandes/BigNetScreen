@@ -153,9 +153,6 @@ impl DeviceRow {
     /// Protocol, address, and what the receiver is doing or why it failed, when
     /// known.
     fn subtitle(&self) -> String {
-        if self.entry.kind == nd_core::sink::SinkKind::AirPlay {
-            return tr!("This device is visible, but AirPlay sharing is not supported.");
-        }
         if identity_refused(&self.entry) {
             return tr!("Did not prove it is the same device used before");
         }
