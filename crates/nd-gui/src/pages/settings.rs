@@ -77,7 +77,7 @@ impl Component for SettingsPage {
                         #[name = "protocol"]
                         adw::ComboRow {
                             set_title: &tr!("Preferred protocol"),
-                            add_prefix = &gtk::Image { set_icon_name: Some("video-display-symbolic"), set_pixel_size: 22, add_css_class: "settings-icon" },
+                            add_prefix = &gtk::Image { set_icon_name: Some("video-display-symbolic"), set_pixel_size: 22, set_valign: gtk::Align::Center, add_css_class: "settings-icon" },
                             set_use_subtitle: true,
                             set_tooltip_text: Some(&tr!("Which kind of receiver to look for")),
                             set_model: Some(&string_list(&[
@@ -96,7 +96,7 @@ impl Component for SettingsPage {
                         #[name = "auto_discovery"]
                         adw::SwitchRow {
                             set_title: &tr!("Automatic discovery"),
-                            add_prefix = &gtk::Image { set_icon_name: Some("network-wireless-symbolic"), set_pixel_size: 22, add_css_class: "settings-icon" },
+                            add_prefix = &gtk::Image { set_icon_name: Some("network-wireless-symbolic"), set_pixel_size: 22, set_valign: gtk::Align::Center, add_css_class: "settings-icon" },
                             set_subtitle: &tr!("Look for receivers as soon as the app starts"),
                             connect_active_notify[sender] => move |row| {
                                 sender.input(SettingsMsg::SetAutoDiscovery(row.is_active()));
@@ -106,7 +106,7 @@ impl Component for SettingsPage {
                         #[name = "device_name"]
                         adw::EntryRow {
                             set_title: &tr!("This computer's name"),
-                            add_prefix = &gtk::Image { set_icon_name: Some("computer-symbolic"), set_pixel_size: 22, add_css_class: "settings-icon" },
+                            add_prefix = &gtk::Image { set_icon_name: Some("computer-symbolic"), set_pixel_size: 22, set_valign: gtk::Align::Center, add_css_class: "settings-icon" },
                             connect_changed[sender] => move |row| {
                                 sender.input(SettingsMsg::SetDeviceName(row.text().to_string()));
                             } @device_name_handler,
@@ -119,7 +119,7 @@ impl Component for SettingsPage {
                         #[name = "hardware_encoding"]
                         adw::SwitchRow {
                             set_title: &tr!("Hardware acceleration"),
-                            add_prefix = &gtk::Image { set_icon_name: Some("applications-graphics-symbolic"), set_pixel_size: 22, add_css_class: "settings-icon" },
+                            add_prefix = &gtk::Image { set_icon_name: Some("applications-graphics-symbolic"), set_pixel_size: 22, set_valign: gtk::Align::Center, add_css_class: "settings-icon" },
                             set_subtitle: &tr!(
                                 "Encode on the graphics card, which is faster and uses far \
                                  less processor. Turn it off if the picture arrives wrong, \
@@ -131,7 +131,7 @@ impl Component for SettingsPage {
                         },
                         adw::ActionRow {
                             set_title: &tr!("Fixed port"),
-                            add_prefix = &gtk::Image { set_icon_name: Some("network-wired-symbolic"), set_pixel_size: 22, add_css_class: "settings-icon" },
+                            add_prefix = &gtk::Image { set_icon_name: Some("network-wired-symbolic"), set_pixel_size: 22, set_valign: gtk::Align::Center, add_css_class: "settings-icon" },
                             set_subtitle: &tr!(
                                 "0 lets the system choose. Set one only if you opened a \
                                  port on your firewall by hand."

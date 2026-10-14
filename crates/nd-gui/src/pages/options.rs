@@ -278,7 +278,10 @@ impl Component for OptionsPanel {
                 &microphone_card.content,
             ),
             row(
-                "view-fullscreen-symbolic",
+                // Not `view-fullscreen-symbolic`: the BigLinux icon theme ships
+                // it as a 16 px drawing in a 22 px file without a viewBox, so
+                // GTK leaves it in the tile's top-left corner.
+                "image-x-generic-symbolic",
                 &tr!("Quality"),
                 &tr!(
                     "The largest picture sent; a smaller screen is sent as it is. Many \
@@ -683,11 +686,12 @@ impl QualityCard {
     }
 }
 
-/// A row of the sidebar: a round badge, the setting's name and its value,
+/// A row of the sidebar: an icon tile, the setting's name and its value,
 /// opening a card with `description` over `choices`.
 fn row(icon: &str, title: &str, description: &str, choices: &impl IsA<gtk::Widget>) -> Row {
     let badge = gtk::Image::builder()
         .icon_name(icon)
+        .pixel_size(22)
         .valign(gtk::Align::Center)
         .css_classes(["option-badge"])
         .accessible_role(gtk::AccessibleRole::Presentation)

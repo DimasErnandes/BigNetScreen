@@ -24,7 +24,15 @@
 .device-row { padding: 10px 14px; }
 .device-row .title { font-weight: 600; }
 .device-row .subtitle { margin-top: 5px; }
-.device-icon { min-width: 46px; min-height: 46px; border-radius: 14px; background-color: alpha(currentColor, 0.045); }
+/* Every icon tile in the window is the same tile: the receiver list, the
+   sidebar options and the settings rows. One size, one radius, one tint, so
+   they read as one family wherever they sit. The image itself is 22 px and
+   centred (set in the widgets), never stretched to the row's height. */
+.device-icon, .settings-icon, .option-badge {
+  min-width: 44px; min-height: 44px;
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.06);
+}
 .badge { border-radius: 999px; padding: 1px 10px; min-height: 20px; font-size: 0.78rem; font-weight: 700; }
 .badge.available, .badge.discovery-only { background-color: alpha(currentColor, 0.08); }
 .badge.busy { background-color: alpha(@accent_bg_color, 0.18); color: @accent_color; }
@@ -54,11 +62,10 @@
 .settings-page row { padding-top: 9px; padding-bottom: 9px; }
 .settings-page .boxed-list { border-radius: 16px; }
 .settings-page preferencesgroup > box > box > label { font-size: 1.15rem; }
-.settings-icon { min-width: 42px; min-height: 42px; border-radius: 12px; background-color: alpha(currentColor, 0.06); }
 
 /* Home: destinations first, then browser and NDI sharing. */
 
-/* Sidebar options: a round badge, the name and the value. The row under the
+/* Sidebar options: an icon tile, the name and the value. The row under the
    pointer takes a ring in the accent 3 px inside its edges; once its card
    opens, the row turns the card's surface and the bridge carries the ring
    into the card's own (hover_cards.rs: RING, RING_INSET). */
@@ -78,7 +85,6 @@ overlay:not(.cards-open) .options-list > row.option-row:hover:not(:disabled),
 .options-list > row.option-row.card-open:dir(rtl) {
   border-radius: 0 13px 13px 0;
 }
-.option-badge { min-width: 32px; min-height: 32px; border-radius: 999px; background-color: alpha(currentColor, 0.08); }
 .option-row.applied .option-badge { background-color: @accent_bg_color; color: @accent_fg_color; }
 .option-value { opacity: 0.75; }
 .option-row.applied .option-value { color: @accent_color; font-weight: bold; opacity: 1; }

@@ -151,7 +151,11 @@ pub fn protocol_label(kind: SinkKind) -> String {
 pub fn icon_for(kind: SinkKind) -> &'static str {
     match kind {
         SinkKind::Chromecast | SinkKind::Dlna => "tv-symbolic",
-        SinkKind::Ndi => "network-transmit-symbolic",
+        // Not `network-transmit-symbolic`: the BigLinux icon theme draws it
+        // through a transform GTK renders as nothing, and an empty tile next
+        // to "NDI" looked like a bug. A camera says "video production" in
+        // every theme.
+        SinkKind::Ndi => "camera-video-symbolic",
         SinkKind::WebRtc => "web-browser-symbolic",
         SinkKind::AirPlay => "display-projector-symbolic",
         SinkKind::WfdP2p | SinkKind::WfdMice => "video-display-symbolic",

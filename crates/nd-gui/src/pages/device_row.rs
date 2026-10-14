@@ -45,7 +45,8 @@ impl FactoryComponent for DeviceRow {
             add_prefix = &gtk::Image {
                 #[watch]
                 set_icon_name: Some(self.entry.icon()),
-                set_pixel_size: 24,
+                set_pixel_size: 22,
+                set_valign: gtk::Align::Center,
                 add_css_class: "device-icon",
             },
 

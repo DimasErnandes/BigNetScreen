@@ -220,7 +220,8 @@ impl Component for SharePage {
                             .replace("{}", &model.airplay.len().to_string()),
                             add_prefix = &gtk::Image {
                                 set_icon_name: Some(crate::pages::icon_for(SinkKind::AirPlay)),
-                                set_pixel_size: 24,
+                                set_pixel_size: 22,
+                                set_valign: gtk::Align::Center,
                                 add_css_class: "device-icon",
                             },
                         },
@@ -276,8 +277,9 @@ impl Component for SharePage {
                             set_title: &tr!("Web browser"),
                             set_subtitle: &tr!("Any phone, tablet or computer on this network opens an address and enters a PIN"),
                             add_prefix = &gtk::Image {
-                                set_icon_name: Some("web-browser-symbolic"),
-                                set_pixel_size: 24,
+                                set_icon_name: Some(crate::pages::icon_for(SinkKind::WebRtc)),
+                                set_pixel_size: 22,
+                                set_valign: gtk::Align::Center,
                                 add_css_class: "device-icon",
                             },
                             add_suffix = &gtk::Button {
@@ -292,8 +294,9 @@ impl Component for SharePage {
                             set_title: &tr!("NDI"),
                             set_subtitle: &tr!("For OBS and other video production software on the network"),
                             add_prefix = &gtk::Image {
-                                set_icon_name: Some("network-transmit-symbolic"),
-                                set_pixel_size: 24,
+                                set_icon_name: Some(crate::pages::icon_for(SinkKind::Ndi)),
+                                set_pixel_size: 22,
+                                set_valign: gtk::Align::Center,
                                 add_css_class: "device-icon",
                             },
                             add_suffix = &gtk::Button {
