@@ -2,6 +2,19 @@ use super::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::upnp::Endpoint;
+
+/// The fake renderer's `AVTransport`, announced in a later version than the
+/// actions were defined in, as Philips televisions do.
+fn av_transport(listener: &TcpListener) -> Service {
+    Service::from_parts(
+        &format!("http://{}/control", listener.local_addr().unwrap()),
+        "urn:schemas-upnp-org:service:AVTransport:3",
+        avtransport::SERVICE,
+    )
+    .unwrap()
+}
+
 /// A 320x240 VP8 and Vorbis film of `seconds`, written for this test.
 fn test_film(name: &str, seconds: u32) -> std::path::PathBuf {
     pipeline::init().unwrap();
@@ -101,11 +114,7 @@ async fn abandoned_start_is_handed_over_again() {
         ..Default::default()
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let control = Endpoint::parse(&format!(
-        "http://{}/control",
-        listener.local_addr().unwrap()
-    ))
-    .unwrap();
+    let control = av_transport(&listener);
     let status = SinkStatus::new();
     let (_cancel, cancelled) = tokio::sync::watch::channel(false);
     let uris = std::sync::atomic::AtomicU32::new(0);
@@ -168,7 +177,13 @@ async fn abandoned_start_is_handed_over_again() {
     };
     let result = tokio::time::timeout(Duration::from_secs(40), async {
         tokio::join!(
-            stream(control.addr.ip(), &control, &source, &status, cancelled),
+            stream(
+                control.endpoint.addr.ip(),
+                &control,
+                &source,
+                &status,
+                cancelled
+            ),
             renderer
         )
     })
@@ -201,11 +216,7 @@ async fn remote_pause_holds_the_file() {
         (_, _, pending) => pending,
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let control = Endpoint::parse(&format!(
-        "http://{}/control",
-        listener.local_addr().unwrap()
-    ))
-    .unwrap();
+    let control = av_transport(&listener);
     let paused_here = AtomicBool::new(false);
     let renderer = async {
         // What the renderer answers each poll, and the file's state the
@@ -301,11 +312,7 @@ async fn delayed_get_reports_actual_pixels() {
         ..Default::default()
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let control = Endpoint::parse(&format!(
-        "http://{}/control",
-        listener.local_addr().unwrap()
-    ))
-    .unwrap();
+    let control = av_transport(&listener);
     let status = SinkStatus::new();
     let (cancel, cancelled) = tokio::sync::watch::channel(false);
     let renderer = async {
@@ -431,7 +438,13 @@ async fn delayed_get_reports_actual_pixels() {
     };
     let result = tokio::time::timeout(Duration::from_secs(20), async {
         tokio::join!(
-            stream(control.addr.ip(), &control, &source, &status, cancelled),
+            stream(
+                control.endpoint.addr.ip(),
+                &control,
+                &source,
+                &status,
+                cancelled
+            ),
             renderer
         )
     })

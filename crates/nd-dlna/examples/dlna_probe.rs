@@ -35,10 +35,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sink = DlnaSink::describe(announcement).await?;
     let location = upnp::Endpoint::parse(&announcement.location).unwrap();
     let description = upnp::describe(&location).await?;
-    let control = location
-        .resolve(&upnp::control_url(&description, "AVTransport:1").unwrap())
-        .unwrap();
-    println!("\n{} → {}", sink.info().display_name, control.url());
+    let control = upnp::Service::find(&description, &location, avtransport::SERVICE).unwrap();
+    println!(
+        "\n{} → {} ({})",
+        sink.info().display_name,
+        control.endpoint.url(),
+        control.service_type()
+    );
 
     // A URL that answers nothing: this probe is about whether the *control*
     // conversation works, and a renderer will still accept and report on one.

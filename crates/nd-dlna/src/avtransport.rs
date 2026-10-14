@@ -17,9 +17,11 @@
 use nd_core::Result;
 use nd_core::stream_server::MediaType;
 
-use crate::upnp::{self, Endpoint};
+use crate::upnp::{self, Service};
 
-pub const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:AVTransport:1";
+/// The standard service these actions belong to. Every one of them dates
+/// from version 1, so any version a renderer announces carries them.
+pub const SERVICE: &str = "AVTransport";
 
 /// Where the renderer says it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,8 +53,8 @@ impl TransportState {
 /// playing something may refuse a new URI, and this is cheaper than finding
 /// out from a SOAP fault. A failure here does not abort: there may have been
 /// nothing to stop.
-pub async fn stop(control: &Endpoint) -> Result<()> {
-    upnp::soap(control, SERVICE_TYPE, "Stop", "<InstanceID>0</InstanceID>").await?;
+pub async fn stop(control: &Service) -> Result<()> {
+    upnp::soap(control, "Stop", "<InstanceID>0</InstanceID>").await?;
     Ok(())
 }
 
@@ -63,7 +65,7 @@ pub async fn stop(control: &Endpoint) -> Result<()> {
 /// the response is, the other what the item is, and a renderer that sees them
 /// disagree believes the metadata.
 pub async fn set_uri(
-    control: &Endpoint,
+    control: &Service,
     url: &str,
     title: &str,
     size: Option<(u32, u32)>,
@@ -77,7 +79,7 @@ pub async fn set_uri(
 /// The metadata is escaped here, once, as a whole: it travels inside a SOAP
 /// string argument. Escaping it while building it as well would double it,
 /// and a renderer shown `&amp;lt;` finds no item at all.
-async fn set_av_transport_uri(control: &Endpoint, url: &str, metadata: &str) -> Result<()> {
+async fn set_av_transport_uri(control: &Service, url: &str, metadata: &str) -> Result<()> {
     let arguments = format!(
         "<InstanceID>0</InstanceID>\
          <CurrentURI>{url}</CurrentURI>\
@@ -85,15 +87,14 @@ async fn set_av_transport_uri(control: &Endpoint, url: &str, metadata: &str) -> 
         url = upnp::escape(url),
         metadata = upnp::escape(metadata),
     );
-    upnp::soap(control, SERVICE_TYPE, "SetAVTransportURI", &arguments).await?;
+    upnp::soap(control, "SetAVTransportURI", &arguments).await?;
     Ok(())
 }
 
 /// Starts playback of the URI already set.
-pub async fn play(control: &Endpoint) -> Result<()> {
+pub async fn play(control: &Service) -> Result<()> {
     upnp::soap(
         control,
-        SERVICE_TYPE,
         "Play",
         "<InstanceID>0</InstanceID><Speed>1</Speed>",
     )
@@ -105,8 +106,8 @@ pub async fn play(control: &Endpoint) -> Result<()> {
 ///
 /// A paused file pipeline sends nothing, and a renderer left waiting on a
 /// silent stream gives up on it within seconds; one told to pause keeps it.
-pub async fn pause(control: &Endpoint) -> Result<()> {
-    upnp::soap(control, SERVICE_TYPE, "Pause", "<InstanceID>0</InstanceID>").await?;
+pub async fn pause(control: &Service) -> Result<()> {
+    upnp::soap(control, "Pause", "<InstanceID>0</InstanceID>").await?;
     Ok(())
 }
 
@@ -121,7 +122,7 @@ pub const FILE_FLAGS: &str = "01700000000000000000000000000000";
 /// `content_type` must be one the renderer's `GetProtocolInfo` lists: it
 /// decides from the metadata whether it can play the item at all.
 pub async fn set_file(
-    control: &Endpoint,
+    control: &Service,
     url: &str,
     title: &str,
     class: &str,
@@ -169,25 +170,19 @@ fn file_didl(
 }
 
 /// Moves the renderer's own playback to `seconds` into the item.
-pub async fn seek(control: &Endpoint, seconds: f64) -> Result<()> {
+pub async fn seek(control: &Service, seconds: f64) -> Result<()> {
     let arguments = format!(
         "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>{}</Target>",
         clock(seconds)
     );
-    upnp::soap(control, SERVICE_TYPE, "Seek", &arguments).await?;
+    upnp::soap(control, "Seek", &arguments).await?;
     Ok(())
 }
 
 /// Where the renderer is in the item, and how long the item is when it
 /// knows.
-pub async fn position(control: &Endpoint) -> Result<(f64, Option<f64>)> {
-    let response = upnp::soap(
-        control,
-        SERVICE_TYPE,
-        "GetPositionInfo",
-        "<InstanceID>0</InstanceID>",
-    )
-    .await?;
+pub async fn position(control: &Service) -> Result<(f64, Option<f64>)> {
+    let response = upnp::soap(control, "GetPositionInfo", "<InstanceID>0</InstanceID>").await?;
     let seconds = upnp::tag_text(&response, "RelTime")
         .and_then(parse_clock)
         .unwrap_or(0.0);
@@ -217,14 +212,8 @@ fn parse_clock(text: &str) -> Option<f64> {
 }
 
 /// Asks the renderer where it is.
-pub async fn transport_state(control: &Endpoint) -> Result<TransportState> {
-    let response = upnp::soap(
-        control,
-        SERVICE_TYPE,
-        "GetTransportInfo",
-        "<InstanceID>0</InstanceID>",
-    )
-    .await?;
+pub async fn transport_state(control: &Service) -> Result<TransportState> {
+    let response = upnp::soap(control, "GetTransportInfo", "<InstanceID>0</InstanceID>").await?;
     Ok(upnp::tag_text(&response, "CurrentTransportState")
         .map(TransportState::parse)
         .unwrap_or(TransportState::Idle))

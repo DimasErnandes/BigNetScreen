@@ -287,17 +287,27 @@ pub struct SinkAccess {
     pub pin: String,
 }
 
-/// Where a UPnP renderer is driven: plain URLs, so that this crate knows
-/// nothing of the protocol that uses them.
+/// One service of a UPnP renderer, as plain strings, so that this crate
+/// knows nothing of the protocol that uses it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpnpService {
+    /// Where the service's actions are posted.
+    pub control_url: String,
+    /// The service type the renderer announced, version included. Actions
+    /// are sent under this type, so its version is the one they use.
+    pub service_type: String,
+}
+
+/// Where a UPnP renderer is driven.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpnpRenderer {
     pub address: std::net::IpAddr,
     /// `AVTransport`: load, play, pause, seek, position.
-    pub av_transport: String,
+    pub av_transport: UpnpService,
     /// `RenderingControl`: volume and mute, when the renderer has it.
-    pub rendering_control: Option<String>,
+    pub rendering_control: Option<UpnpService>,
     /// `ConnectionManager`: which formats the renderer accepts.
-    pub connection_manager: Option<String>,
+    pub connection_manager: Option<UpnpService>,
 }
 
 /// A connectable receiver. Implementations must be thread-safe.

@@ -6,29 +6,39 @@
 //! drive the item ([`crate::avtransport`]), `ConnectionManager` to ask which
 //! formats it accepts, and `RenderingControl` for its volume.
 
-use nd_core::sink::UpnpRenderer;
+use nd_core::sink::{UpnpRenderer, UpnpService};
 use nd_core::{NdError, Result};
 
-use crate::upnp::{self, Endpoint};
+use crate::upnp::{self, Service};
 
-const CONNECTION_MANAGER: &str = "urn:schemas-upnp-org:service:ConnectionManager:1";
-const RENDERING_CONTROL: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
+/// The standard service that lists the formats a renderer accepts.
+pub const CONNECTION_MANAGER: &str = "ConnectionManager";
+/// The standard service that holds a renderer's volume.
+pub const RENDERING_CONTROL: &str = "RenderingControl";
 
 pub struct Renderer {
-    pub av_transport: Endpoint,
-    rendering_control: Option<Endpoint>,
-    connection_manager: Option<Endpoint>,
+    pub av_transport: Service,
+    rendering_control: Option<Service>,
+    connection_manager: Option<Service>,
 }
 
 impl Renderer {
     pub fn new(renderer: &UpnpRenderer) -> Result<Self> {
-        let parse = |url: &str| Endpoint::parse(url);
+        let service = |service: &UpnpService, name| {
+            Service::from_parts(&service.control_url, &service.service_type, name)
+        };
         Ok(Self {
-            av_transport: parse(&renderer.av_transport).ok_or_else(|| {
-                NdError::Protocol("the renderer has no usable AVTransport".into())
-            })?,
-            rendering_control: renderer.rendering_control.as_deref().and_then(parse),
-            connection_manager: renderer.connection_manager.as_deref().and_then(parse),
+            av_transport: service(&renderer.av_transport, crate::avtransport::SERVICE).ok_or_else(
+                || NdError::Protocol("the renderer has no usable AVTransport".into()),
+            )?,
+            rendering_control: renderer
+                .rendering_control
+                .as_ref()
+                .and_then(|s| service(s, RENDERING_CONTROL)),
+            connection_manager: renderer
+                .connection_manager
+                .as_ref()
+                .and_then(|s| service(s, CONNECTION_MANAGER)),
         })
     }
 
@@ -38,7 +48,7 @@ impl Renderer {
         let Some(control) = &self.connection_manager else {
             return Ok(Vec::new());
         };
-        let response = upnp::soap(control, CONNECTION_MANAGER, "GetProtocolInfo", "").await?;
+        let response = upnp::soap(control, "GetProtocolInfo", "").await?;
         Ok(parse_sink_types(
             upnp::tag_text(&response, "Sink").unwrap_or(""),
         ))
@@ -48,11 +58,9 @@ impl Renderer {
     pub async fn volume(&self) -> Option<(f64, bool)> {
         let control = self.rendering_control.as_ref()?;
         let arguments = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
-        let volume = upnp::soap(control, RENDERING_CONTROL, "GetVolume", arguments)
-            .await
-            .ok()?;
+        let volume = upnp::soap(control, "GetVolume", arguments).await.ok()?;
         let level = volume_level(upnp::tag_text(&volume, "CurrentVolume")?)?;
-        let mute = upnp::soap(control, RENDERING_CONTROL, "GetMute", arguments)
+        let mute = upnp::soap(control, "GetMute", arguments)
             .await
             .ok()
             .and_then(|mute| upnp::tag_text(&mute, "CurrentMute").map(|m| m == "1"))
@@ -66,7 +74,7 @@ impl Renderer {
             "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{}</DesiredVolume>",
             (level.clamp(0.0, 1.0) * 100.0).round() as u32
         );
-        upnp::soap(control, RENDERING_CONTROL, "SetVolume", &arguments).await?;
+        upnp::soap(control, "SetVolume", &arguments).await?;
         Ok(())
     }
 
@@ -76,11 +84,11 @@ impl Renderer {
             "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>{}</DesiredMute>",
             u8::from(muted)
         );
-        upnp::soap(control, RENDERING_CONTROL, "SetMute", &arguments).await?;
+        upnp::soap(control, "SetMute", &arguments).await?;
         Ok(())
     }
 
-    fn rendering_control(&self) -> Result<&Endpoint> {
+    fn rendering_control(&self) -> Result<&Service> {
         self.rendering_control
             .as_ref()
             .ok_or_else(|| NdError::Unsupported("this TV has no volume control".into()))

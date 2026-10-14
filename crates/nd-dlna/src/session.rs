@@ -29,7 +29,7 @@ use nd_core::stream_server::{DLNA_FILE_MEDIA, DLNA_MEDIA, MediaType, StreamServe
 use nd_core::{NdError, Result};
 
 use crate::avtransport::{self, TransportState};
-use crate::upnp::Endpoint;
+use crate::upnp::Service;
 
 /// How long the renderer gets to open the `GET` after `Play`.
 ///
@@ -78,7 +78,7 @@ const ITEM_TITLE: &str = "BigNetScreen";
 
 pub async fn run(
     receiver: IpAddr,
-    control: &Endpoint,
+    control: &Service,
     source: CaptureSource,
     status: &SinkStatus,
     cancel: tokio::sync::watch::Receiver<bool>,
@@ -90,7 +90,7 @@ pub async fn run(
 
 async fn stream(
     receiver: IpAddr,
-    control: &Endpoint,
+    control: &Service,
     source: &CaptureSource,
     status: &SinkStatus,
     mut cancel: tokio::sync::watch::Receiver<bool>,
@@ -206,7 +206,7 @@ async fn serve_until_over(
     gst_pipeline: &gst::Pipeline,
     events: &mut pipeline::PipelineEvents,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
-    control: &Endpoint,
+    control: &Service,
     status: &SinkStatus,
     mut cfg: StreamConfig,
 ) -> Result<()> {
@@ -413,7 +413,7 @@ async fn start_picture(
 }
 
 /// Tells the renderer to play `url`.
-async fn hand_over(control: &Endpoint, url: &str, media: MediaType) -> Result<()> {
+async fn hand_over(control: &Service, url: &str, media: MediaType) -> Result<()> {
     // A renderer already showing something may refuse a new URI, and one
     // request settles it. Failing here is not fatal: most often there was
     // simply nothing to stop.
@@ -441,7 +441,7 @@ fn heading_for_pause(pipeline: &gst::Pipeline) -> bool {
 fn adopt_negotiated_size(
     gst_pipeline: &gst::Pipeline,
     cfg: &mut StreamConfig,
-    control: &Endpoint,
+    control: &Service,
     status: &SinkStatus,
 ) -> bool {
     let Some((width, height)) = pipeline::negotiated_video_size(gst_pipeline) else {
@@ -458,7 +458,7 @@ fn adopt_negotiated_size(
         width,
         height,
         fps: cfg.fps,
-        endpoint: Some(control.addr),
+        endpoint: Some(control.endpoint.addr),
         receivers: None,
     });
     let delivered = pipeline::delivered_capture_size(gst_pipeline);
@@ -472,7 +472,7 @@ fn adopt_negotiated_size(
 }
 
 /// Passes the file pipeline's pause or resume on to the renderer.
-async fn follow_pause(control: &Endpoint, url: &str, paused: bool, media: MediaType) -> Result<()> {
+async fn follow_pause(control: &Service, url: &str, paused: bool, media: MediaType) -> Result<()> {
     if paused {
         return avtransport::pause(control).await;
     }
@@ -499,7 +499,7 @@ async fn follow_pause(control: &Endpoint, url: &str, paused: bool, media: MediaT
 /// until the renderer plays again. Left producing, it would fill a connection
 /// the renderer stopped reading until the queue limit ended the session.
 async fn until_renderer_stops(
-    control: &Endpoint,
+    control: &Service,
     paused_here: &std::sync::atomic::AtomicBool,
     file_pipeline: &gst::Pipeline,
     follows_pause: bool,

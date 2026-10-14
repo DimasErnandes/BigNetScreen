@@ -4,6 +4,10 @@
 
 ---
 
+## Service versions
+
+A renderer is listed when its description announces the standard `AVTransport` service in any version; `RenderingControl` and `ConnectionManager` are used when present, in any version. Each action is sent under the service type the renderer announced, in both `SOAPACTION` and the action element's namespace, as the [UPnP Device Architecture 2.0](https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf) requires (§3.1.1): the version must be one the device supports and at least the one that defined the action. A device announces its highest supported version, and every action sent here dates from version 1. A Philips 50PUG6513/78, for instance, announces version 3 of all three services and is addressed as version 3. Only `urn:schemas-upnp-org:service:<name>:<integer>` passes, because the type is copied into a request header and an XML attribute.
+
 ## Resolution is measured in pixels
 
 A portal can announce compositor coordinates instead of physical pixels. A 2560×1440 desktop at fractional scaling announced 2327×1309: using that announcement as the encoding size reduced the transmitted image to 2326×1308.

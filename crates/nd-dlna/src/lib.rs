@@ -32,7 +32,7 @@ use nd_core::sink::{Sink, SinkInfo, SinkKind, SinkState, SinkStatus, sanitize_na
 use nd_core::{NdError, Result};
 
 use crate::ssdp::Announcement;
-use crate::upnp::Endpoint;
+use crate::upnp::{Endpoint, Service};
 
 pub use ssdp::DlnaProvider;
 
@@ -42,11 +42,11 @@ pub struct DlnaSink {
     /// The description URL it announced, kept so a sweep can tell a device
     /// that merely re-announced from one that actually moved.
     location: String,
-    /// Where `AVTransport` is driven.
-    control: Endpoint,
+    /// Where `AVTransport` is driven, and in which version.
+    control: Service,
     /// `RenderingControl` and `ConnectionManager`, when it announced them.
-    rendering_control: Option<Endpoint>,
-    connection_manager: Option<Endpoint>,
+    rendering_control: Option<Service>,
+    connection_manager: Option<Service>,
     address: IpAddr,
     status: SinkStatus,
     /// Cancels the running session, when there is one, with the number that
@@ -67,20 +67,12 @@ impl DlnaSink {
         })?;
         let description = upnp::describe(&location).await?;
 
-        let control_path = upnp::control_url(&description, "AVTransport:1").ok_or_else(|| {
-            NdError::Unsupported("the device has no AVTransport service to drive".into())
+        let service = |name| Service::find(&description, &location, name);
+        let control = service(avtransport::SERVICE).ok_or_else(|| {
+            NdError::Unsupported("the device has no usable AVTransport service to drive".into())
         })?;
-        let control = location.resolve(&control_path).ok_or_else(|| {
-            NdError::Protocol(format!(
-                "the AVTransport URL makes no sense: {control_path}"
-            ))
-        })?;
-
-        let service = |kind: &str| {
-            upnp::control_url(&description, kind).and_then(|path| location.resolve(&path))
-        };
-        let rendering_control = service("RenderingControl:1");
-        let connection_manager = service("ConnectionManager:1");
+        let rendering_control = service(renderer::RENDERING_CONTROL);
+        let connection_manager = service(renderer::CONNECTION_MANAGER);
 
         // Off the network and straight into a label, so it is sanitised like
         // every other announced name.
@@ -120,15 +112,15 @@ impl Sink for DlnaSink {
     }
 
     fn control_endpoint(&self) -> Option<std::net::SocketAddr> {
-        Some(self.control.addr)
+        Some(self.control.endpoint.addr)
     }
 
     fn upnp_renderer(&self) -> Option<nd_core::sink::UpnpRenderer> {
         Some(nd_core::sink::UpnpRenderer {
             address: self.address,
-            av_transport: self.control.url(),
-            rendering_control: self.rendering_control.as_ref().map(Endpoint::url),
-            connection_manager: self.connection_manager.as_ref().map(Endpoint::url),
+            av_transport: self.control.to_upnp(),
+            rendering_control: self.rendering_control.as_ref().map(Service::to_upnp),
+            connection_manager: self.connection_manager.as_ref().map(Service::to_upnp),
         })
     }
 
@@ -219,7 +211,12 @@ mod tests {
             ..Default::default()
         });
         // Nobody answers there: each session ends by itself, with an error.
-        let control = Endpoint::parse("http://127.0.0.1:1/control").unwrap();
+        let control = Service::from_parts(
+            "http://127.0.0.1:1/control",
+            "urn:schemas-upnp-org:service:AVTransport:1",
+            avtransport::SERVICE,
+        )
+        .unwrap();
         let sink = DlnaSink {
             info: SinkInfo {
                 id: "test".into(),
@@ -228,7 +225,7 @@ mod tests {
                 address: Some("127.0.0.1".into()),
             },
             location: String::new(),
-            address: control.addr.ip(),
+            address: control.endpoint.addr.ip(),
             control,
             rendering_control: None,
             connection_manager: None,

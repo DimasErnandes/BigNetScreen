@@ -241,13 +241,10 @@ pub async fn describe(location: &Endpoint) -> Result<String> {
 /// Invokes one SOAP action and returns the response body.
 ///
 /// `arguments` is the already-built XML of the action's children: each caller
-/// has a small fixed set, built and escaped by hand.
-pub(crate) async fn soap(
-    control: &Endpoint,
-    service_type: &str,
-    action: &str,
-    arguments: &str,
-) -> Result<String> {
+/// has a small fixed set, built and escaped by hand. The action is sent under
+/// the service's announced type, in `SOAPACTION` and in the namespace alike.
+pub(crate) async fn soap(service: &Service, action: &str, arguments: &str) -> Result<String> {
+    let service_type = service.service_type();
     let body = format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
          <s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
@@ -259,7 +256,7 @@ pub(crate) async fn soap(
         "Content-Type: text/xml; charset=\"utf-8\"\r\n\
          SOAPAction: \"{service_type}#{action}\"\r\n"
     );
-    request(control, &extra, &body).await
+    request(&service.endpoint, &extra, &body).await
 }
 
 /// The text of the first `<tag>` in `xml`, trimmed.
@@ -295,19 +292,92 @@ pub fn tag_text<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
     None
 }
 
-/// The `controlURL` of the service whose `serviceType` ends with `wanted`.
+/// The prefix of every service type the UPnP Forum standardised.
+const STANDARD_SERVICE: &str = "urn:schemas-upnp-org:service:";
+
+/// A standard service of a renderer: where its actions are posted, and the
+/// service type the renderer announced for it, version included.
 ///
-/// A renderer's description lists several services and only their order tells
-/// them apart, so this walks the `<service>` blocks: a search of the whole
-/// document can return RenderingControl's URL for an AVTransport request.
-pub fn control_url(description: &str, wanted: &str) -> Option<String> {
-    for block in description.split("<service>").skip(1) {
-        let block = block.split("</service>").next()?;
-        if tag_text(block, "serviceType").is_some_and(|t| t.ends_with(wanted)) {
-            return tag_text(block, "controlURL").map(str::to_string);
+/// Actions go out under the announced type. The UPnP Device Architecture
+/// (2.0, §3.1.1) lets a control point name any version the device supports,
+/// at or above the one that defined the action, and requires `SOAPACTION` and
+/// the action element's namespace to name the same one. A device announces
+/// the highest version it supports (§2.3), and every action sent here dates
+/// from version 1, so the announced type is always valid: a television
+/// announcing `AVTransport:3`, as Philips models do, is addressed as version 3.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Service {
+    pub endpoint: Endpoint,
+    /// Private, so that only a type that passed [`is_standard_service`] can
+    /// reach a request header.
+    service_type: String,
+}
+
+impl Service {
+    /// The standard service `name`, such as `AVTransport`, in a description
+    /// fetched from `location`, in whichever version the device announces.
+    ///
+    /// A renderer's description lists several services and only their order
+    /// tells them apart, so this walks the `<service>` blocks: a search of the
+    /// whole document can return RenderingControl's URL for an AVTransport
+    /// request.
+    pub fn find(description: &str, location: &Endpoint, name: &str) -> Option<Self> {
+        for block in description.split("<service>").skip(1) {
+            let block = block.split("</service>").next()?;
+            let Some(service_type) = tag_text(block, "serviceType") else {
+                continue;
+            };
+            if is_standard_service(service_type, name) {
+                return Some(Self {
+                    endpoint: location.resolve(tag_text(block, "controlURL")?)?,
+                    service_type: service_type.to_string(),
+                });
+            }
+        }
+        None
+    }
+
+    /// A service handed over as plain strings, checked as strictly as one
+    /// read from a description.
+    pub fn from_parts(control_url: &str, service_type: &str, name: &str) -> Option<Self> {
+        if !is_standard_service(service_type, name) {
+            return None;
+        }
+        Some(Self {
+            endpoint: Endpoint::parse(control_url)?,
+            service_type: service_type.to_string(),
+        })
+    }
+
+    /// The announced type, such as `urn:schemas-upnp-org:service:AVTransport:3`.
+    pub fn service_type(&self) -> &str {
+        &self.service_type
+    }
+
+    /// The same service as plain strings, for [`nd_core::sink::UpnpRenderer`].
+    pub fn to_upnp(&self) -> nd_core::sink::UpnpService {
+        nd_core::sink::UpnpService {
+            control_url: self.endpoint.url(),
+            service_type: self.service_type.clone(),
         }
     }
-    None
+}
+
+/// Whether `service_type` is `urn:schemas-upnp-org:service:<name>:<version>`,
+/// the version a positive integer.
+///
+/// The type comes from the device and goes into a request header and an XML
+/// attribute, so nothing but that exact shape passes: no character that could
+/// end either early.
+fn is_standard_service(service_type: &str, name: &str) -> bool {
+    service_type
+        .strip_prefix(STANDARD_SERVICE)
+        .and_then(|rest| rest.strip_prefix(name))
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|version| {
+            version.bytes().all(|byte| byte.is_ascii_digit())
+                && version.parse::<u32>().is_ok_and(|version| version >= 1)
+        })
 }
 
 /// Escapes text for an XML attribute or element body. Characters XML 1.0
@@ -402,19 +472,155 @@ mod tests {
 <controlURL>/dmr/control_2</controlURL></service>
 </serviceList></device></root>"#;
 
+    /// The service found, as `(path, announced type)`.
+    fn found(description: &str, name: &str) -> Option<(String, String)> {
+        let location = Endpoint::parse("http://192.168.1.59:55000/dmr/ddd.xml").unwrap();
+        Service::find(description, &location, name)
+            .map(|service| (service.endpoint.path, service.service_type))
+    }
+
     #[test]
     fn picks_the_right_service_url() {
         // Searching the whole document for `controlURL` returns
         // RenderingControl's, and every later Play lands on the volume service.
         assert_eq!(
-            control_url(PANASONIC, "AVTransport:1").as_deref(),
-            Some("/dmr/control_2")
+            found(PANASONIC, "AVTransport"),
+            Some((
+                "/dmr/control_2".into(),
+                "urn:schemas-upnp-org:service:AVTransport:1".into()
+            ))
         );
         assert_eq!(
-            control_url(PANASONIC, "RenderingControl:1").as_deref(),
-            Some("/dmr/control_0")
+            found(PANASONIC, "RenderingControl").map(|(path, _)| path),
+            Some("/dmr/control_0".into())
         );
-        assert_eq!(control_url(PANASONIC, "ContentDirectory:1"), None);
+        assert_eq!(found(PANASONIC, "ContentDirectory"), None);
+    }
+
+    /// Trimmed from a Philips 50PUG6513/78 at `/dmr.xml`, which announces
+    /// version 3 of every service and relative control URLs.
+    const PHILIPS: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0">
+<device><dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC>
+<deviceType>urn:schemas-upnp-org:device:MediaRenderer:3</deviceType>
+<friendlyName>50PUG6513/78</friendlyName>
+<serviceList>
+<service><serviceType>urn:schemas-upnp-org:service:RenderingControl:3</serviceType>
+<controlURL>control/RenderingControl</controlURL></service>
+<service><serviceType>urn:schemas-upnp-org:service:ConnectionManager:3</serviceType>
+<controlURL>control/ConnectionManager</controlURL></service>
+<service><serviceType>urn:schemas-upnp-org:service:AVTransport:3</serviceType>
+<controlURL>control/AVTransport</controlURL></service>
+</serviceList></device></root>"#;
+
+    #[test]
+    fn later_service_versions_keep_their_version() {
+        for name in ["AVTransport", "RenderingControl", "ConnectionManager"] {
+            assert_eq!(
+                found(PHILIPS, name),
+                Some((
+                    format!("/dmr/control/{name}"),
+                    format!("urn:schemas-upnp-org:service:{name}:3")
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn only_standard_service_types_pass() {
+        let passes = |service_type| is_standard_service(service_type, "AVTransport");
+        assert!(passes("urn:schemas-upnp-org:service:AVTransport:1"));
+        assert!(passes("urn:schemas-upnp-org:service:AVTransport:3"));
+        for refused in [
+            // Another service whose name merely starts or ends the same way.
+            "urn:schemas-upnp-org:service:XAVTransport:1",
+            "urn:schemas-upnp-org:service:AVTransportX:1",
+            // A vendor's service is not the standard one the actions belong to.
+            "urn:example-com:service:AVTransport:1",
+            // No usable version.
+            "urn:schemas-upnp-org:service:AVTransport",
+            "urn:schemas-upnp-org:service:AVTransport:",
+            "urn:schemas-upnp-org:service:AVTransport:0",
+            "urn:schemas-upnp-org:service:AVTransport:+1",
+            "urn:schemas-upnp-org:service:AVTransport:x",
+            // The type ends up in a request header and an XML attribute.
+            "urn:schemas-upnp-org:service:AVTransport:1\r\nX-Injected: 1",
+            "urn:schemas-upnp-org:service:AVTransport:1\" a=\"b",
+        ] {
+            assert!(!passes(refused), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn a_handed_over_service_is_checked_again() {
+        let url = "http://192.168.1.59:55000/avt";
+        let service = Service::from_parts(
+            url,
+            "urn:schemas-upnp-org:service:AVTransport:2",
+            "AVTransport",
+        )
+        .unwrap();
+        assert_eq!(service.to_upnp().control_url, url);
+        assert_eq!(
+            service.service_type(),
+            "urn:schemas-upnp-org:service:AVTransport:2"
+        );
+        assert!(Service::from_parts(url, "AVTransport\r\n", "AVTransport").is_none());
+        assert!(
+            Service::from_parts(
+                url,
+                "urn:schemas-upnp-org:service:RenderingControl:1",
+                "AVTransport"
+            )
+            .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn actions_carry_the_announced_version() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "http://{}/control/AVTransport",
+            listener.local_addr().unwrap()
+        );
+        let service_type = "urn:schemas-upnp-org:service:AVTransport:3";
+        let service = Service::from_parts(&url, service_type, "AVTransport").unwrap();
+        let device = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 4096];
+            while !String::from_utf8_lossy(&request).contains("</s:Envelope>") {
+                let read = tokio::io::AsyncReadExt::read(&mut socket, &mut chunk)
+                    .await
+                    .unwrap();
+                assert!(read > 0, "request ended early");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            let body = "<ok/>";
+            tokio::io::AsyncWriteExt::write_all(
+                &mut socket,
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+            String::from_utf8(request).unwrap()
+        };
+        let (request, response) =
+            tokio::join!(device, soap(&service, "Play", "<InstanceID>0</InstanceID>"));
+        assert_eq!(response.unwrap(), "<ok/>");
+        // UDA 2.0 §3.1.1: the header and the namespace name the same version.
+        assert!(
+            request.contains(&format!("SOAPAction: \"{service_type}#Play\"\r\n")),
+            "{request}"
+        );
+        assert!(
+            request.contains(&format!("<u:Play xmlns:u=\"{service_type}\">")),
+            "{request}"
+        );
     }
 
     #[test]
@@ -442,10 +648,7 @@ mod tests {
             None
         );
         assert_eq!(tag_text("", "friendlyName"), None);
-        assert_eq!(
-            control_url("<service><serviceType>x", "AVTransport:1"),
-            None
-        );
+        assert_eq!(found("<service><serviceType>x", "AVTransport"), None);
     }
 
     #[test]

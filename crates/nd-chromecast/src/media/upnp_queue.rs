@@ -305,7 +305,15 @@ mod tests {
     use super::super::MediaSession;
     use super::super::recording_sink::{RecordingSink, read_request};
     use super::*;
-    use nd_core::sink::UpnpRenderer;
+    use nd_core::sink::{UpnpRenderer, UpnpService};
+
+    /// A service of the fake television at `base`, announced in `version`.
+    fn service(base: &str, path: &str, name: &str, version: u32) -> UpnpService {
+        UpnpService {
+            control_url: format!("{base}/{path}"),
+            service_type: format!("urn:schemas-upnp-org:service:{name}:{version}"),
+        }
+    }
 
     #[tokio::test]
     async fn dlna_tv_gets_music_as_audio() {
@@ -318,12 +326,25 @@ mod tests {
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
+        // A different version for each service: every action must go out under
+        // the one its own service announced, in the header and the namespace.
         let renderer = UpnpRenderer {
             address: "127.0.0.1".parse().unwrap(),
-            av_transport: format!("{base}/avt"),
-            rendering_control: Some(format!("{base}/rc")),
-            connection_manager: Some(format!("{base}/cm")),
+            av_transport: service(&base, "avt", "AVTransport", 3),
+            rendering_control: Some(service(&base, "rc", "RenderingControl", 2)),
+            connection_manager: Some(service(&base, "cm", "ConnectionManager", 1)),
         };
+        let announced: Vec<(String, String)> = [
+            &renderer.av_transport,
+            renderer.rendering_control.as_ref().unwrap(),
+            renderer.connection_manager.as_ref().unwrap(),
+        ]
+        .into_iter()
+        .map(|s| {
+            let path = s.control_url.strip_prefix(&base).unwrap().to_string();
+            (path, s.service_type.clone())
+        })
+        .collect();
         // Would be used by the decoding fallback, which must not happen here.
         let sink = RecordingSink::new();
         // What a player sends: its own level, full. The TV must not follow it.
@@ -360,6 +381,20 @@ mod tests {
                     })
                     .unwrap_or_default();
                 actions.push(action.clone());
+                let path = head.split_whitespace().nth(1).unwrap_or_default();
+                let service_type = &announced
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .unwrap_or_else(|| panic!("no service at {path}"))
+                    .1;
+                assert!(
+                    head.contains(&format!("SOAPAction: \"{service_type}#{action}\"")),
+                    "{head}"
+                );
+                assert!(
+                    body.contains(&format!("<u:{action} xmlns:u=\"{service_type}\">")),
+                    "{body}"
+                );
                 let reply = match action.as_str() {
                     "GetProtocolInfo" => {
                         "<Sink>http-get:*:audio/wav:*,http-get:*:video/mpeg:*</Sink>".to_string()
@@ -458,9 +493,9 @@ mod tests {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let renderer = UpnpRenderer {
             address: "127.0.0.1".parse().unwrap(),
-            av_transport: format!("{base}/avt"),
+            av_transport: service(&base, "avt", "AVTransport", 1),
             rendering_control: None,
-            connection_manager: Some(format!("{base}/cm")),
+            connection_manager: Some(service(&base, "cm", "ConnectionManager", 3)),
         };
         let sink = RecordingSink::new();
         let session =
@@ -469,7 +504,10 @@ mod tests {
         // It asks what the TV plays, and the answer has no Ogg in it.
         let (mut socket, _) = listener.accept().await.unwrap();
         let (head, _) = read_request(&mut socket).await;
-        assert!(head.contains("#GetProtocolInfo"), "{head}");
+        assert!(
+            head.contains("\"urn:schemas-upnp-org:service:ConnectionManager:3#GetProtocolInfo\""),
+            "{head}"
+        );
         let body = "<s:Envelope><s:Body><Sink>http-get:*:audio/mpeg:*</Sink></s:Body></s:Envelope>";
         socket
             .write_all(
