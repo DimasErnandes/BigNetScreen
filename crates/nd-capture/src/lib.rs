@@ -19,8 +19,8 @@
 //!
 //! A monitor capture asks the portal to persist its authorization and keeps
 //! the returned restore token, so later casts start with no dialog. With
-//! several monitors, where the compositor reports them, the portal asks every
-//! time. The token lives in `$XDG_DATA_HOME/bignetscreen/restore-token-<kind>`,
+//! several logical monitors, where the compositor reports them, the portal
+//! asks every time. The token lives in `$XDG_DATA_HOME/bignetscreen/restore-token-<kind>`,
 //! private to the user.
 
 pub mod display_config;
@@ -53,8 +53,10 @@ fn cap_err<E: std::fmt::Display>(e: E) -> NdError {
 /// every time, so asking again on each cast is noise. Sharing "a window" is a
 /// choice, and it is usually a different one: restoring it skipped the picker
 /// and silently cast the window from the previous run. A screen among several
-/// is a choice too, so a monitor is not restored when `monitors`, the count
-/// the compositor reports, is more than one. An unknown count keeps restoring.
+/// is a choice too, so a monitor is not restored when `monitors`, the count of
+/// logical monitors the compositor reports, is more than one. Logical, because
+/// that is what the picker lists: a mirrored projector is one screen to choose.
+/// An unknown count keeps restoring.
 fn restores_selection(source_type: SourceType, monitors: Option<usize>) -> bool {
     match source_type {
         SourceType::Monitor => monitors.is_none_or(|count| count < 2),
@@ -63,13 +65,12 @@ fn restores_selection(source_type: SourceType, monitors: Option<usize>) -> bool 
     }
 }
 
-/// How many monitors are attached, where the compositor says: Mutter's display
-/// configuration on GNOME. `None` elsewhere, and inside Flatpak, whose bus
-/// filter hides that interface.
+/// How many logical monitors the desktop has, where the compositor says:
+/// Mutter's display configuration on GNOME. `None` elsewhere, and inside
+/// Flatpak, whose bus filter hides that interface.
 async fn monitor_count() -> Option<usize> {
     let conn = zbus::Connection::session().await.ok()?;
-    let connectors = display_config::connectors(&conn).await;
-    (!connectors.is_empty()).then_some(connectors.len())
+    display_config::logical_monitor_count(&conn).await
 }
 
 /// Where the restore token for a given source kind lives.
